@@ -6,6 +6,7 @@ require 'active_support/hash_with_indifferent_access'
 require 'active_support/core_ext/hash/indifferent_access'
 require 'logger'
 require 'benchmark'
+require 'get_process_mem'
 
 module Delayed
   class Worker # rubocop:disable ClassLength
@@ -225,12 +226,14 @@ module Delayed
     end
 
     def run(job)
-      job_say job, 'RUNNING'
+      mem_monitor = GetProcessMem.new
+      start_mem = mem_monitor.mb
+      job_say job, format('RUNNING, mem %<mem>.1f Mb', mem: start_mem)
       runtime = Benchmark.realtime do
         Timeout.timeout(max_run_time(job).to_i, WorkerTimeout) { job.invoke_job }
         job.destroy
       end
-      job_say job, format('COMPLETED after %.4f', runtime)
+      job_say job, format('COMPLETED after %<runtime>.4f, mem leak %<memleak>.1f Mb', runtime: runtime, memleak: mem_monitor.mb - start_mem)
       return true # did work
     rescue DeserializationError => error
       job_say job, "FAILED permanently with #{error.class.name}: #{error.message}", 'error'
